@@ -1,0 +1,57 @@
+name: Environment System Alternative
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: |-
+        ${{
+          github.ref_name     == 'master'   && 'PROD'
+          || github.ref_name  == 'dev'      && 'DEV'
+          || github.ref_name  == 'test'     && 'TEST'
+          ||                                   'UNKNOWN'
+        }}
+
+    steps:
+      - name: Validate Environment
+        run: |
+          if [ "${{ env.ENVIRONMENT }}" == "UNKNOWN" ]; then
+            echo "Error: ENVIRONMENT value is set to UNKNOWN."
+            exit 1
+          fi
+
+      - name: Get Repo Link
+        id: get_link
+        run: echo "::set-output name=repo_link::$(echo $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)"
+
+      - name: OpenVPN Install
+        run: sudo apt-get install openvpn -y
+          
+      - name: OpenVPN Setup
+        run: echo "${{ secrets[format('{0}_OPENVPN_CONFIG', env.ENVIRONMENT)] }}" | sudo tee openvpn_config.ovpn > /dev/null
+          
+      - name: OpenVPN Connect
+        run: sudo openvpn --config openvpn_config.ovpn --daemon
+
+      - name: Wait for a VPN connection
+        timeout-minutes: 1
+        run: until ping -c1 ${{ secrets[format('{0}_SSH_HOST', env.ENVIRONMENT)] }}; do sleep 2; done
+
+      - name: Connect SSH and Deploy Project
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets[format('{0}_SSH_HOST', env.ENVIRONMENT)] }}
+          username: ${{ secrets[format('{0}_SSH_USERNAME', env.ENVIRONMENT)] }}
+          key: ${{ secrets[format('{0}_SSH_PRIVATE_KEY', env.ENVIRONMENT)] }}
+          port: ${{ secrets[format('{0}_SSH_PORT', env.ENVIRONMENT)] }}
+          script: |
+            git clone --single-branch --branch ${{ github.ref_name }} ${{ steps.get_link.outputs.repo_link }}
+
+      - name: Kill VPN connection
+        if: always()
+        run: |
+          sudo killall openvpn

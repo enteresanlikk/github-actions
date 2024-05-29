@@ -1,0 +1,42 @@
+name: OpenVPN with SSH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get Repo Link
+        id: get_link
+        run: echo "::set-output name=repo_link::$(echo $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)"
+
+      - name: OpenVPN Install
+        run: sudo apt-get install openvpn -y
+          
+      - name: OpenVPN Setup
+        run: echo "${{ secrets.OPENVPN_CONFIG }}" | sudo tee openvpn_config.ovpn > /dev/null
+          
+      - name: OpenVPN Connect
+        run: sudo openvpn --config openvpn_config.ovpn --daemon
+
+      - name: Wait for a VPN connection
+        timeout-minutes: 1
+        run: until ping -c1 ${{ secrets.SSH_HOST }}; do sleep 2; done
+
+      - name: Connect SSH and Deploy Project
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            git clone --single-branch --branch ${{ github.ref_name }} ${{ steps.get_link.outputs.repo_link }}
+
+      - name: Kill VPN connection
+        if: always()
+        run: |
+          sudo killall openvpn

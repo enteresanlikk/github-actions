@@ -24,10 +24,6 @@ jobs:
             exit 1
           fi
 
-      - name: Get Repo Link
-        id: get_link
-        run: echo "::set-output name=repo_link::$(echo $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)"
-
       - name: OpenVPN Install
         run: sudo apt-get install openvpn -y
           
@@ -48,8 +44,10 @@ jobs:
           username: ${{ secrets[format('{0}_SSH_USERNAME', env.ENVIRONMENT)] }}
           key: ${{ secrets[format('{0}_SSH_PRIVATE_KEY', env.ENVIRONMENT)] }}
           port: ${{ secrets[format('{0}_SSH_PORT', env.ENVIRONMENT)] }}
+          allenvs: true
+          script_stop: true
           script: |
-            git clone --single-branch --branch ${{ github.ref_name }} ${{ steps.get_link.outputs.repo_link }}
+            git clone --single-branch --branch ${{ github.ref_name }} $GITHUB_SERVER_URL/$GITHUB_REPOSITORY
 
       - name: Kill VPN connection
         if: always()
